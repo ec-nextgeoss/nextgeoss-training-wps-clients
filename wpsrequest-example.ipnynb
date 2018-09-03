@@ -1,0 +1,692 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Step 9 - Run the application on the Production Centre"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Step 9 of the tutorial uses a Jupyter Notebook to query the catalog for a Sentinel-1 GRD product, creates a Web Processing Service (WPS) request invoking the data transformation application that was deployed in **Step 8**, monitors the WPS request execution and finally retrieves the data transformation execution results"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* First do the imports of the Python libraries required"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "import owslib\n",
+    "from owslib.wps import monitorExecution\n",
+    "import uuid\n",
+    "from owslib.wps import WebProcessingService\n",
+    "import sys\n",
+    "import os\n",
+    "sys.path.append('/opt/anaconda/bin/')\n",
+    "import lxml.etree as etree\n",
+    "import requests\n",
+    "import cioppy\n",
+    "ciop = cioppy.Cioppy()\n",
+    "import shapely\n",
+    "import dateutil.parser\n",
+    "from shapely.wkt import loads \n",
+    "import pandas as pd\n",
+    "import geopandas as gp\n",
+    "from datetime import datetime, timedelta\n",
+    "from io import BytesIO\n",
+    "from zipfile import ZipFile\n",
+    "import matplotlib.pyplot as plt\n",
+    "import gdal\n",
+    "import numpy as np\n",
+    "\n",
+    "%matplotlib inline"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Define the search parameters: the catalog series OpenSearch endpoint, the time of interest and the area of interest"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "series = 'https://catalog.terradue.com/sentinel1/search'\n",
+    "\n",
+    "start_date = '2017-09-01T00:00:00'\n",
+    "stop_date = '2017-12-10T23:59:59'\n",
+    "\n",
+    "geom = 'MULTIPOLYGON (((26.832 9.5136, 28.6843 9.5136, 28.6843 7.8009, 26.832 7.8009, 26.832 9.5136)), ((32.0572 12.4549, 33.9087 12.4549, 33.9087 10.7344, 32.0572 10.7344, 32.0572 12.4549)), ((-5.5 17.26, -1.08 17.26, -1.08 13.5, -5.5 13.5, -5.5 17.26)), ((12.9415 13.7579, 14.6731 13.7579, 14.6731 12.0093, 12.9415 12.0093, 12.9415 13.7579)))'"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Search for Sentinel-1 GRD products in one of the polygons of the area of interest"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "wkt = loads(geom)[0].wkt"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "search_params = dict([('geom', wkt),\n",
+    "                     ('start', start_date),\n",
+    "                     ('stop', stop_date),\n",
+    "                      ('pt', 'GRD')])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "search = ciop.search(end_point = series,\n",
+    "                     params = search_params,\n",
+    "                     output_fields='self,enclosure,identifier', \n",
+    "                     model='GeoTime')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* List the Sentinel-1 GRD products found"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "(0, 'S1A_IW_GRDH_1SDV_20171207T035045_20171207T035110_019591_021463_A5A3')\n",
+      "(1, 'S1A_IW_GRDH_1SDV_20171207T035016_20171207T035045_019591_021463_0026')\n",
+      "(2, 'S1B_IW_GRDH_1SDV_20171206T035811_20171206T035836_008593_00F41C_389F')\n",
+      "(3, 'S1B_IW_GRDH_1SDV_20171206T035746_20171206T035811_008593_00F41C_DC3A')\n",
+      "(4, 'S1B_IW_GRDH_1SDV_20171201T034954_20171201T035019_008520_00F1CA_204A')\n",
+      "(5, 'S1B_IW_GRDH_1SDV_20171201T034929_20171201T034954_008520_00F1CA_DB5D')\n",
+      "(6, 'S1A_IW_GRDH_1SDV_20171125T035046_20171125T035111_019416_020EED_F4FC')\n",
+      "(7, 'S1A_IW_GRDH_1SDV_20171125T035017_20171125T035046_019416_020EED_2508')\n",
+      "(8, 'S1B_IW_GRDH_1SDV_20171124T035811_20171124T035836_008418_00EE8B_68B5')\n",
+      "(9, 'S1B_IW_GRDH_1SDV_20171124T035746_20171124T035811_008418_00EE8B_5E11')\n",
+      "(10, 'S1A_IW_GRDH_1SDV_20171113T035046_20171113T035111_019241_020964_DCB1')\n",
+      "(11, 'S1A_IW_GRDH_1SDV_20171113T035017_20171113T035046_019241_020964_7E05')\n",
+      "(12, 'S1B_IW_GRDH_1SDV_20171112T035811_20171112T035836_008243_00E941_9FD2')\n",
+      "(13, 'S1B_IW_GRDH_1SDV_20171112T035746_20171112T035811_008243_00E941_408D')\n",
+      "(14, 'S1B_IW_GRDH_1SDV_20171107T034954_20171107T035019_008170_00E70C_BA8C')\n",
+      "(15, 'S1B_IW_GRDH_1SDV_20171107T034929_20171107T034954_008170_00E70C_2159')\n",
+      "(16, 'S1A_IW_GRDH_1SDV_20171101T035046_20171101T035111_019066_0203FC_6892')\n",
+      "(17, 'S1A_IW_GRDH_1SDV_20171101T035017_20171101T035046_019066_0203FC_D306')\n",
+      "(18, 'S1B_IW_GRDH_1SDV_20171031T035812_20171031T035837_008068_00E41A_1829')\n",
+      "(19, 'S1B_IW_GRDH_1SDV_20171031T035747_20171031T035812_008068_00E41A_3D90')\n"
+     ]
+    }
+   ],
+   "source": [
+    "for index, elem in enumerate(search):\n",
+    "    print(index, elem['identifier'])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Select the Sentinel-1 GRD product to process"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "s1_index = 2"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Connect to the WPS server"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 36,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "wps_url = 'http://maxent.wur.nextgeoss.terradue.com/wps/WebProcessingService'\n",
+    "wps_url = 'http://gridded-data.armines.nextgeoss.terradue.com/wps/WebProcessingService'\n",
+    "\n",
+    "wps = WebProcessingService(wps_url, verbose=False, skip_caps=True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Do a GetCapabilities WPS request and list the process:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 37,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "wps.getcapabilities()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 38,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "(0, 'com.terradue.wps_oozie.process.OozieAbstractAlgorithm')\n"
+     ]
+    }
+   ],
+   "source": [
+    "for index, elem in enumerate(wps.processes):\n",
+    "    print(index, elem.identifier)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Select the **com.terradue.wps_oozie.process.OozieAbstractAlgorithm** process and print the title and abstract after having submited a WPS DescribeProcess request"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 39,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [],
+   "source": [
+    "process_id = wps.processes[0].identifier"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 40,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "process = wps.describeprocess(process_id)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 41,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'McCloud Map test WPS'"
+      ]
+     },
+     "execution_count": 41,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "process.title"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 42,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'TODO'"
+      ]
+     },
+     "execution_count": 42,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "process.abstract"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* List the WPS process inputs:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 43,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "bbox\n",
+      "width\n",
+      "height\n",
+      "datex\n",
+      "dt\n",
+      "count\n",
+      "min_tile_width\n",
+      "min_tile_height\n"
+     ]
+    }
+   ],
+   "source": [
+    "for input in process.dataInputs:\n",
+    "    print(input.identifier)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Create a Python dictionary with the inputs:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 44,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "bbox = '5.0,46.0,6.0,45.0'\n",
+    "width = '1009'\n",
+    "height = '1013'\n",
+    "datex = '2453385.900000'\n",
+    "dt = '0.00069444'\n",
+    "count = '3'\n",
+    "min_tile_width = '-1'\n",
+    "min_tile_height = '-1'"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 45,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [],
+   "source": [
+    "inputs = [('bbox', bbox),\n",
+    "        ('width', width),\n",
+    "        ('height', height),\n",
+    "        ('datex', datex),\n",
+    "        ('dt', dt),\n",
+    "        ('count', count),\n",
+    "        ('min_tile_width', min_tile_width),\n",
+    "        ('min_tile_height', min_tile_height)]"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Submit the Execute WPS request:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 46,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "execution = owslib.wps.WPSExecution(url=wps.url)\n",
+    "\n",
+    "execution_request = execution.buildRequest(process_id, \n",
+    "                                           inputs, \n",
+    "                                           output = [('result_osd', False)])\n",
+    "\n",
+    "execution_response = execution.submitRequest(etree.tostring(execution_request))\n",
+    "\n",
+    "execution.parseResponse(execution_response)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Monitor the request:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 48,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'http://gridded-data.armines.nextgeoss.terradue.com/wps/RetrieveResultServlet?id=048af2a9-8cae-415b-bf53-ab05f5c8658f'"
+      ]
+     },
+     "execution_count": 48,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "execution.statusLocation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 54,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [],
+   "source": [
+    "monitorExecution(execution)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Check the outcome of the processing request"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 55,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "True"
+      ]
+     },
+     "execution_count": 55,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "execution.isSucceded()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "* Search for the results produced"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 56,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "result_osd\n"
+     ]
+    }
+   ],
+   "source": [
+    "for output in execution.processOutputs:\n",
+    "    print(output.identifier)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 82,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "['<ns:Reference xmlns:ns=\"http://www.opengis.net/wps/1.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" href=\"http://gridded-data.armines.nextgeoss.terradue.com/sbws/wps/mccloud_map_wps/0000000-180830000011126-oozie-oozi-W/results/description\" method=\"GET\" mimeType=\"application/opensearchdescription+xml\"/>']\n"
+     ]
+    }
+   ],
+   "source": [
+    "for output in execution.processOutputs:\n",
+    "    print(output.data)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 97,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'<ns:Reference xmlns:ns=\"http://www.opengis.net/wps/1.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" href=\"http://gridded-data.armines.nextgeoss.terradue.com/sbws/wps/mccloud_map_wps/0000000-180830000011126-oozie-oozi-W/results/description\" method=\"GET\" mimeType=\"application/opensearchdescription+xml\"/>'"
+      ]
+     },
+     "execution_count": 97,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "execution.processOutputs[0].data[0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 87,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      " identifier=result_osd, title=OpenSearch Description to the Results, abstract=None, data type=ComplexData\n",
+      " Default Value: None \n",
+      " reference=None, mimeType=application/xml\n",
+      " Data Value: <ns:Reference xmlns:ns=\"http://www.opengis.net/wps/1.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" href=\"http://gridded-data.armines.nextgeoss.terradue.com/sbws/wps/mccloud_map_wps/0000000-180830000011126-oozie-oozi-W/results/description\" method=\"GET\" mimeType=\"application/opensearchdescription+xml\"/>\n"
+     ]
+    }
+   ],
+   "source": [
+    "for output in execution.processOutputs:\n",
+    "    owslib.wps.printInputOutput(output)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "results_osd = execution.processOutputs[0].data[0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 100,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "<ns:Reference xmlns:ns=\"http://www.opengis.net/wps/1.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" href=\"http://gridded-data.armines.nextgeoss.terradue.com/sbws/wps/mccloud_map_wps/0000000-180830000011126-oozie-oozi-W/results/description\" method=\"GET\" mimeType=\"application/opensearchdescription+xml\"/>\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(results_osd)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Get the href from the previsous Reference value"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 102,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "referenceUrl = 'http://gridded-data.armines.nextgeoss.terradue.com/sbws/wps/mccloud_map_wps/0000000-180830000011126-oozie-oozi-W/results/description'"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 103,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [],
+   "source": [
+    "search_results = ciop.search(end_point=referenceUrl,\n",
+    "                         params=[],\n",
+    "                         output_fields='identifier,enclosure',\n",
+    "                         model='GeoTime')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 104,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "http://gridded-data.armines.nextgeoss.terradue.com/data/run/mccloud_map_wps/0000000-180830000011126-oozie-oozi-W/_results/result.h5\n"
+     ]
+    }
+   ],
+   "source": [
+    "for index, elem in enumerate(search_results):\n",
+    "    print(elem['enclosure'])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 2",
+   "language": "python",
+   "name": "python2"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 2
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython2",
+   "version": "2.7.12"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
