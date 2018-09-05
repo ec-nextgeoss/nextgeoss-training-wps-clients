@@ -14,3 +14,5 @@ The 3 basic WPS operations that must be implemented on the client side to intera
 See https://gist.github.com/enguer/d5cc91cb6e35726c5f0409a443d05636
 
 An example of the 1 module, implemented in Python on a Jupyter Notebook.
+
+The example wpsrequest-example.ipynb file is provided in this repository 
