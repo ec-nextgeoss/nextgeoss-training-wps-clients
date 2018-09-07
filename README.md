@@ -1,9 +1,11 @@
 # nextgeoss-training-wps-clients
-NextGEOSS second training - Integration of standard Web Processing Service clients
+NextGEOSS second training, Tuesday 11th September 2018, Geneva
+
+Topic 8 - Integration of standard Web Processing Service clients
 
 This training session goes through two modules:
 
-## Integration of standard Web Processing Service clients
+## Integration of standard Web Processing Service clients (basic operations)
 
 See https://gist.github.com/enguer/bbdd56ae6b27bec75d0e52a21c4a2985
 
